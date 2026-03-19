@@ -44,15 +44,8 @@ class Configuration:
     vllm_model: str = field(
         default=os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct"),
         metadata={
-            "description": "vLLM model name for local execution. "
-            "Used when model is set to 'vllm/*'."
-        }
-    )
-
-    vllm_base_url: str = field(
-        default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
-        metadata={
-            "description": "Base URL of the vLLM server."
+            "description": "vLLM model name for direct local execution. "
+            "Used when model is set to 'vllm/*'. Must be a HuggingFace model ID."
         }
     )
 
@@ -60,6 +53,13 @@ class Configuration:
         default=int(os.getenv("VLLM_MAX_TOKENS", "1024")),
         metadata={
             "description": "Maximum tokens for vLLM responses."
+        }
+    )
+
+    vllm_gpu_memory: float = field(
+        default=float(os.getenv("VLLM_GPU_MEMORY", "0.9")),
+        metadata={
+            "description": "GPU memory fraction to use for vLLM (0.0 to 1.0)."
         }
     )
 
