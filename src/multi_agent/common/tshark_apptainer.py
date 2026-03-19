@@ -1,18 +1,30 @@
 """
 Apptainer tshark wrapper for running tshark commands within a container.
 
-This module provides a unified interface to run tshark commands via Apptainer,
-allowing the agent to work with containerized network analysis tools.
+This module provides a unified interface to run tshark commands via Apptainer.
+Requires Apptainer to be installed and a tshark.sif container image.
+
+On HPC clusters with module systems, ensure Apptainer is loaded:
+    module load apptainer
+    
+Or set the PATH:
+    export PATH=/path/to/apptainer/bin:$PATH
 """
 
 import subprocess
 import os
+import shutil
 from typing import Optional, List
 
 
 class ApptainerTsharkError(Exception):
-    """Raised when Apptainer tshark execution fails."""
+    """Raised when tshark execution via Apptainer fails."""
     pass
+
+
+def _is_apptainer_available() -> bool:
+    """Check if Apptainer is installed and accessible in PATH."""
+    return shutil.which("apptainer") is not None
 
 
 def get_tshark_container_path() -> str:
@@ -28,6 +40,22 @@ def get_tshark_container_path() -> str:
     return os.getenv("TSHARK_CONTAINER_PATH", "tshark.sif")
 
 
+def get_available_tshark_backend() -> str:
+    """
+    Determine if Apptainer tshark backend is available.
+    
+    Returns:
+        "apptainer" if Apptainer + container available
+        "none" if Apptainer or container not available
+    """
+    if _is_apptainer_available():
+        container_path = get_tshark_container_path()
+        if os.path.exists(container_path):
+            return "apptainer"
+    
+    return "none"
+
+
 def run_tshark_apptainer(
     pcap_file: str, 
     tshark_args: List[str],
@@ -35,6 +63,9 @@ def run_tshark_apptainer(
 ) -> str:
     """
     Run tshark command via Apptainer container.
+    
+    Uses --fakeroot flag to handle UID mapping issues on HPC clusters
+    where user UID may not exist in container.
     
     Args:
         pcap_file: Path to the PCAP file to analyze
@@ -46,7 +77,7 @@ def run_tshark_apptainer(
         stdout from tshark execution
     
     Raises:
-        ApptainerTsharkError: If tshark execution fails
+        ApptainerTsharkError: If Apptainer is not available or tshark execution fails
     
     Example:
         # Run: tshark -r file.pcap -T fields -e tcp.stream
@@ -55,21 +86,43 @@ def run_tshark_apptainer(
             ['-r', 'file.pcap', '-T', 'fields', '-e', 'tcp.stream']
         )
     """
+    # Check if Apptainer is available
+    if not _is_apptainer_available():
+        raise ApptainerTsharkError(
+            "Apptainer is not available in PATH.\n\n"
+            "On HPC clusters with module systems, load Apptainer with:\n"
+            "    module load apptainer\n\n"
+            "Or ensure Apptainer is installed:\n"
+            "    Ubuntu/Debian: sudo apt-get install -y apptainer\n"
+            "    RHEL/CentOS: sudo dnf install -y apptainer\n\n"
+            "If Apptainer is installed but not in PATH, set it:\n"
+            "    export PATH=/path/to/apptainer/bin:$PATH\n\n"
+            "For more info: https://apptainer.org/docs/admin/main/installation.html"
+        )
+    
     if container_path is None:
         container_path = get_tshark_container_path()
     
     # Verify container exists
     if not os.path.exists(container_path):
         raise ApptainerTsharkError(
-            f"Tshark container not found at: {container_path}\n"
-            f"Set TSHARK_CONTAINER_PATH environment variable or ensure tshark.sif exists."
+            f"Tshark container not found at: {container_path}\n\n"
+            f"Create the container with:\n"
+            f"    bash scripts/setup_apptainer_tshark.sh\n\n"
+            f"Or set TSHARK_CONTAINER_PATH to the correct location:\n"
+            f"    export TSHARK_CONTAINER_PATH=/path/to/tshark.sif"
         )
     
-    # Build the apptainer command
-    command = [
-        "apptainer", "exec", container_path,
-        "tshark"  # The tshark command within the container
-    ]
+    # Build the apptainer command with flags for HPC compatibility
+    # --fakeroot: Handle UID mapping on HPC clusters where user UID may not exist in container
+    # --contain: Contain filesystem and IPC to the container
+    container_env = os.getenv("APPTAINER_EXTRA_FLAGS", "")
+    base_flags = ["--fakeroot", "--contain"]
+    
+    command = ["apptainer", "exec"] + base_flags
+    if container_env:
+        command.extend(container_env.split())
+    command.extend([container_path, "tshark"])  # tshark command within container
     
     # Add tshark arguments
     command.extend(tshark_args)
@@ -92,7 +145,7 @@ def run_tshark_apptainer(
         
     except FileNotFoundError:
         raise ApptainerTsharkError(
-            "Apptainer not found. Please ensure Apptainer is installed and in PATH."
+            "Apptainer executable not found. Please ensure Apptainer is installed and in PATH."
         )
     except Exception as e:
         raise ApptainerTsharkError(f"Failed to run tshark via Apptainer: {str(e)}")
@@ -279,4 +332,5 @@ __all__ = [
     "conv_tcp_apptainer",
     "get_tls_streams_apptainer",
     "get_tshark_container_path",
+    "get_available_tshark_backend",
 ]

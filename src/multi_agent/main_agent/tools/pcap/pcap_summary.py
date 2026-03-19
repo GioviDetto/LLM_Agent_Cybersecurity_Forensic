@@ -10,9 +10,17 @@ It shows a table of IP conversations, with columns like:
     -Duration of each conversation
 
 This is useful for identifying the main endpoints communicating in a capture and the amount of data exchanged.
+
+Requires Apptainer and tshark.sif container to be properly configured.
 """
 
-from multi_agent.common.tshark_apptainer import conv_tcp_apptainer, ApptainerTsharkError
+import logging
+from multi_agent.common.tshark_apptainer import (
+    conv_tcp_apptainer, 
+    ApptainerTsharkError
+)
+
+logger = logging.getLogger(__name__)
 
 def generate_summary(pcap_file: str) -> str:
     """
@@ -22,13 +30,18 @@ def generate_summary(pcap_file: str) -> str:
     
     Args:
         pcap_file: the path to the pcap file.
+    
     Returns:
         The output of the command.
+    
+    Raises:
+        ApptainerTsharkError: If Apptainer is not available or tshark execution fails.
     """
     try:
         out = conv_tcp_apptainer(pcap_file)
     except ApptainerTsharkError as e:
-        out = f"Error: {e}"
+        logger.error(f"Failed to generate PCAP summary: {e}")
+        raise
     
     if len(out.strip()) == 0:
         out = "No output found for the given command."

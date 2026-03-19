@@ -3,9 +3,17 @@ Extract TLS flows from a PCAP file via Apptainer tshark.
 
 Executes: tshark -r file.pcap -Y tls -T fields -e tcp.stream
 Removes duplicates and returns a set of TCP streams that contain TLS traffic.
+
+Requires Apptainer and tshark.sif container to be properly configured.
 """
+import logging
 from typing import Set
-from multi_agent.common.tshark_apptainer import get_tls_streams_apptainer, ApptainerTsharkError
+from multi_agent.common.tshark_apptainer import (
+    get_tls_streams_apptainer, 
+    ApptainerTsharkError
+)
+
+logger = logging.getLogger(__name__)
 
 def get_tls_streams(pcap_file: str) -> Set[int]:
     """
@@ -18,9 +26,6 @@ def get_tls_streams(pcap_file: str) -> Set[int]:
         Set[int]: A set of TCP stream numbers that contain TLS traffic.
     
     Raises:
-        ApptainerTsharkError: If tshark execution fails.
+        ApptainerTsharkError: If Apptainer is not available or tshark execution fails.
     """
-    try:
-        return get_tls_streams_apptainer(pcap_file)
-    except ApptainerTsharkError as e:
-        raise ApptainerTsharkError(f"Failed to get TLS streams from {pcap_file}: {str(e)}")
+    return get_tls_streams_apptainer(pcap_file)
