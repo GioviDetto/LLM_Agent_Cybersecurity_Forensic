@@ -64,8 +64,8 @@ def run_tshark_apptainer(
     """
     Run tshark command via Apptainer container.
     
-    Uses --userns for UID isolation on HPC clusters. Does not use --contain
-    to allow access to PCAP files on host filesystem.
+    Uses --fakeroot to handle UID mapping and --writable-tmpfs to avoid
+    SIF-to-sandbox conversion issues that cause user account lookup failures.
     
     Args:
         pcap_file: Path to the PCAP file to analyze (on host filesystem)
@@ -114,10 +114,11 @@ def run_tshark_apptainer(
         )
     
     # Build the apptainer command with flags for HPC compatibility
-    # --userns: User namespace isolation - maps host UID to container without requiring it to exist
-    # (NO --contain flag: allows access to host filesystem for PCAP files)
+    # --fakeroot: Maps host UID/GID through fakeroot
+    # --writable-tmpfs: Use tmpfs for writes instead of converting SIF to sandbox
+    #                   This avoids user account lookup failures during sandbox creation
     container_env = os.getenv("APPTAINER_EXTRA_FLAGS", "")
-    base_flags = ["--userns"]
+    base_flags = ["--fakeroot", "--writable-tmpfs"]
     
     command = ["apptainer", "exec"] + base_flags
     if container_env:
