@@ -1,9 +1,14 @@
 """Embeddings service module for local and remote embeddings."""
 
 import os
+import warnings
 from typing import Optional, Union
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
+
+# Suppress HuggingFaceEmbeddings deprecation warning from LangChain
+# The class is still functional and maintained in langchain_community
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='langchain')
 
 
 def get_embeddings(

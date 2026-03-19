@@ -242,6 +242,33 @@ def conv_tcp_apptainer(pcap_file: str) -> str:
         raise ApptainerTsharkError(f"Failed to get TCP conversations: {str(e)}")
 
 
+def get_tls_streams_apptainer(pcap_file: str) -> set:
+    """
+    Get the TCP streams that contain TLS traffic from a PCAP file.
+    
+    Equivalent to: tshark -r <pcap_file> -Y tls -T fields -e tcp.stream
+    
+    Args:
+        pcap_file: Path to the PCAP file
+    
+    Returns:
+        Set of unique TCP stream numbers containing TLS traffic
+    
+    Raises:
+        ApptainerTsharkError: If tshark execution fails
+    """
+    try:
+        output = run_tshark_apptainer(
+            pcap_file,
+            ['-r', pcap_file, '-Y', 'tls', '-T', 'fields', '-e', 'tcp.stream']
+        )
+        # Extract unique stream numbers
+        streams = set(int(line.strip()) for line in output.splitlines() if line.strip().isdigit())
+        return streams
+    except ApptainerTsharkError as e:
+        raise ApptainerTsharkError(f"Failed to get TLS streams: {str(e)}")
+
+
 __all__ = [
     "ApptainerTsharkError",
     "run_tshark_apptainer",
@@ -250,5 +277,6 @@ __all__ = [
     "get_flow_http2_apptainer",
     "get_flow_http_apptainer",
     "conv_tcp_apptainer",
+    "get_tls_streams_apptainer",
     "get_tshark_container_path",
 ]
