@@ -64,8 +64,8 @@ def run_tshark_apptainer(
     """
     Run tshark command via Apptainer container.
     
-    Uses --fakeroot flag to handle UID mapping issues on HPC clusters
-    where user UID may not exist in container.
+    Uses --userns flag for proper UID isolation on HPC clusters where user UID
+    may not exist in container. This is more robust than --fakeroot for this use case.
     
     Args:
         pcap_file: Path to the PCAP file to analyze
@@ -114,10 +114,11 @@ def run_tshark_apptainer(
         )
     
     # Build the apptainer command with flags for HPC compatibility
-    # --fakeroot: Handle UID mapping on HPC clusters where user UID may not exist in container
-    # --contain: Contain filesystem and IPC to the container
+    # --userns: User namespace isolation - maps host UID to container without requiring it to exist
+    # --contain: Contain filesystem and IPC to the container for isolation
+    # This is more robust than --fakeroot for handling arbitrary HPC UIDs
     container_env = os.getenv("APPTAINER_EXTRA_FLAGS", "")
-    base_flags = ["--fakeroot", "--contain"]
+    base_flags = ["--userns", "--contain"]
     
     command = ["apptainer", "exec"] + base_flags
     if container_env:
