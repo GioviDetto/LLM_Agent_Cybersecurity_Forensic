@@ -152,6 +152,25 @@ class VLLMChatModel(BaseChatModel):
         
         return prompt
     
+    def bind_tools(self, tools: List[Any], **kwargs: Any) -> "VLLMChatModel":
+        """
+        Bind tools to the model.
+        
+        Note: vLLM does not natively support function calling like OpenAI.
+        This method accepts tools for compatibility with LangChain agents
+        but doesn't modify model behavior. Tool use is handled by the agent framework.
+        
+        Args:
+            tools: List of tools to bind
+            **kwargs: Additional arguments (ignored)
+        
+        Returns:
+            Self for method chaining
+        """
+        # vLLM doesn't support native tool calling, but we accept tools
+        # for compatibility with LangChain agent patterns
+        return self
+    
     def __del__(self):
         """Clean up vLLM resources on model deletion."""
         if self._vllm_model is not None:
