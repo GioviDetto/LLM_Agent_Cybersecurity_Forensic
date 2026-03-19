@@ -1,8 +1,8 @@
 """Factory for initializing LLM models based on configuration."""
 
 import os
-from typing import Any
-from langchain.chat_models import init_chat_model
+from typing import Any, Union
+from langchain_openai import ChatOpenAI
 from multi_agent.llm_service.vllm_wrapper import VLLMChatModel
 
 
@@ -31,13 +31,16 @@ def init_llm(model_config: str, timeout: int = 200, **kwargs) -> Any:
     
     if provider.lower() == "vllm":
         return get_vllm_model(model=model, **kwargs)
-    else:
-        # Use existing init_chat_model for OpenAI and other providers
-        return init_chat_model(
+    elif provider.lower() == "openai":
+        return ChatOpenAI(
             model=model,
-            model_provider=provider,
             timeout=timeout,
             **kwargs
+        )
+    else:
+        raise ValueError(
+            f"Unsupported provider: {provider}. "
+            f"Use 'vllm' for local models or 'openai' for OpenAI API."
         )
 
 

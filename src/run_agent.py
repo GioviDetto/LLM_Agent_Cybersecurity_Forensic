@@ -8,8 +8,6 @@ from pathlib import Path
 import shutil
 
 from langgraph.store.memory import InMemoryStore
-from langchain.embeddings import init_embeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from dotenv import load_dotenv
 
 from multi_agent.main_agent.graph import build_graph 

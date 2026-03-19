@@ -2,16 +2,14 @@
 
 import os
 from typing import Any, Optional, List
-from langchain_core.language_models.chat_model import BaseChatModel
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_core.outputs.chat_generation import ChatGeneration
-from langchain_core.outputs.llm_result import LLMResult
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 try:
     from vllm import LLM, SamplingParams
-    VLLM_AVAILABLE = True
 except ImportError:
-    VLLM_AVAILABLE = False
+    raise ImportError("vLLM is not installed. Install with: pip install vllm")
 
 
 class VLLMChatModel(BaseChatModel):
@@ -25,11 +23,8 @@ class VLLMChatModel(BaseChatModel):
     _vllm_model: Optional[LLM] = None
     
     def __init__(self, **data):
-        """Initialize VLLMChatModel and load the vLLM model."""
+        """Initialize VLLMChatModel (lazy load model on first use)."""
         super().__init__(**data)
-        if not VLLM_AVAILABLE:
-            raise ImportError("vLLM is not installed. Install with: pip install vllm")
-        self._load_model()
     
     def _load_model(self):
         """Load vLLM model on first use."""
@@ -47,6 +42,15 @@ class VLLMChatModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "vllm"
     
+    def _get_message_role(self, msg: BaseMessage) -> str:
+        """Get role from message type."""
+        role_map = {
+            HumanMessage: "user",
+            AIMessage: "assistant",
+            SystemMessage: "system"
+        }
+        return role_map.get(type(msg), "user")
+    
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -55,25 +59,18 @@ class VLLMChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> LLMResult:
         """Generate text from messages using vLLM directly."""
-        # Ensure model is loaded
-        self._load_model()
+        # Lazy load model on first inference
+        if self._vllm_model is None:
+            self._load_model()
         
         # Convert messages to chat format
-        formatted_messages = []
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                role = "user"
-            elif isinstance(msg, AIMessage):
-                role = "assistant"
-            elif isinstance(msg, SystemMessage):
-                role = "system"
-            else:
-                role = "user"
-            
-            formatted_messages.append({
-                "role": role,
+        formatted_messages = [
+            {
+                "role": self._get_message_role(msg),
                 "content": msg.content
-            })
+            }
+            for msg in messages
+        ]
         
         # Prepare sampling parameters
         sampling_params = SamplingParams(
@@ -92,10 +89,11 @@ class VLLMChatModel(BaseChatModel):
         output = outputs[0]
         
         # Extract generated text
-        content = output.outputs[0].text.strip()
-        finish_reason = output.outputs[0].finish_reason
+        generated = output.outputs[0]
+        content = generated.text.strip()
+        finish_reason = generated.finish_reason
         
-        # Estimate token counts
+        # Estimate token counts (word-based approximation)
         input_tokens = sum(len(msg["content"].split()) for msg in formatted_messages)
         output_tokens = len(content.split())
         
