@@ -41,6 +41,42 @@ class Configuration:
         }
     )
 
+    vllm_model: str = field(
+        default=os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct"),
+        metadata={
+            "description": "vLLM model name for local execution. "
+            "Used when model is set to 'vllm/*'."
+        }
+    )
+
+    vllm_base_url: str = field(
+        default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
+        metadata={
+            "description": "Base URL of the vLLM server."
+        }
+    )
+
+    vllm_max_tokens: int = field(
+        default=int(os.getenv("VLLM_MAX_TOKENS", "1024")),
+        metadata={
+            "description": "Maximum tokens for vLLM responses."
+        }
+    )
+
+    use_local_embeddings: bool = field(
+        default=os.getenv("USE_LOCAL_EMBEDDINGS", "false").lower() == "true",
+        metadata={
+            "description": "Whether to use local HuggingFace embeddings instead of OpenAI."
+        }
+    )
+
+    embedding_model: str = field(
+        default=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+        metadata={
+            "description": "HuggingFace embedding model name for local embeddings."
+        }
+    )
+
     # Derived fields: not initialized directly
     max_fifo_tokens: int = field(init=False)
     max_working_context_tokens: int = field(init=False)

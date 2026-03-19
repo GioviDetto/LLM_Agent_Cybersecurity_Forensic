@@ -14,6 +14,7 @@ from multi_agent.main_agent.tools.report import finalAnswerFormatter
 from multi_agent.common.global_state import State_global
 from configuration import Configuration
 from multi_agent.common.utils import count_tokens, split_model_and_provider
+from multi_agent.llm_service import init_llm
 from multi_agent.main_agent.prompts import SYSTEM_PROMPT, USER_PROMPT
 
 
@@ -108,9 +109,7 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     ]
 
     #LLM call
-    llm = init_chat_model(**split_model_and_provider(configurable.model), 
-                          #temperature=0.0, 
-                          timeout=200)
+    llm = init_llm(configurable.model, timeout=200)
     llm_with_tools = llm.bind_tools([upsert_memory, web_quick_search, finalAnswerFormatter])
     debug_config = RunnableConfig(callbacks=[PromptDebugHandler()])
 

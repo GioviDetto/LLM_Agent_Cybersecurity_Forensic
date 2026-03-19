@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 
 from multi_agent.main_agent.graph import build_graph 
 from multi_agent.common.global_state import State_global
+from multi_agent.embeddings_service import get_embeddings
+from configuration import Configuration
 
 
 load_dotenv()
@@ -120,20 +122,26 @@ def load_data():
 
 
 def init_store() -> InMemoryStore:
-    if EXECUTION == "LOCAL":
-        return InMemoryStore(
-            index={
-                "embed": HuggingFaceEmbeddings(model_name="BAAI/bge-small-en"),
-                "dims": 384,
-            }
-        )
+    """Initialize InMemoryStore with embeddings based on configuration."""
+    config = Configuration.from_runnable_config()
+    embeddings = get_embeddings(use_local=config.use_local_embeddings, model_name=config.embedding_model)
+    
+    # Determine embedding dimensions based on model
+    if config.use_local_embeddings:
+        # Local embeddings (all-MiniLM-L6-v2 has 384 dims, BAAI/bge-small-en has 384 dims)
+        dims = 384 if "bge" not in config.embedding_model else 384
+        if "large" in config.embedding_model:
+            dims = 1024
     else:
-        return InMemoryStore(
-            index={
-                "embed": init_embeddings("openai:text-embedding-3-small"),
-                "dims": 1536,
-            }
-        )
+        # OpenAI embeddings dimensions
+        dims = 1536
+    
+    return InMemoryStore(
+        index={
+            "embed": embeddings,
+            "dims": dims,
+        }
+    )
 
 
 def get_artifact_paths(entry: dict) -> dict:

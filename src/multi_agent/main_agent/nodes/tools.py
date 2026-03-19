@@ -5,6 +5,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
 
 from multi_agent.common.utils import split_model_and_provider
+from multi_agent.llm_service import init_llm
 from multi_agent.main_agent.tools.memory import upsert_memory_func
 from browser import web_quick_search_func
 from multi_agent.main_agent.tools.report import finalAnswerFormatter_func
@@ -51,7 +52,7 @@ async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore
     if web_calls:
         first_web_call = web_calls[0]
         configurable = Configuration.from_runnable_config(config)
-        llm = init_chat_model(**split_model_and_provider(configurable.model),timeout=100)
+        llm = init_llm(configurable.model, timeout=100)
         query_used = first_web_call["args"].get("query", "unknown")
         
         (response,inCount,outCount) = web_quick_search_func(**first_web_call["args"], llm_model=llm, strategy=state.strategy,context_window_size= configurable.context_window_size)

@@ -5,3 +5,4 @@ venv/
 **/log_steps/
 **/result**
 **/__pycache__/
+**/.ipynb_checkpoints

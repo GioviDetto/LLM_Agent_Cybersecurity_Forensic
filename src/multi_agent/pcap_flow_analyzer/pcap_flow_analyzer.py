@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from configuration import Configuration
 from multi_agent.common.utils import get_flow,truncate_flow,get_flow_web_browsing
 from multi_agent.common.utils import split_model_and_provider, count_tokens
+from multi_agent.llm_service import init_llm
 from multi_agent.pcap_flow_analyzer.output_format import Pcap_flow_output, format_pcap_flow_output
 from multi_agent.pcap_flow_analyzer.prompts import (
     PCAP_FLOW_ANALYZER_SYSTEM_PROMPT,
@@ -34,11 +35,7 @@ async def pcap_flow_analyzer(
     input_token_count = 0
     output_token_count = 0
     configurable = Configuration.from_runnable_config(config)
-    llm = init_chat_model(
-        **split_model_and_provider(configurable.model),
-        #temperature=0.0,
-        timeout=200
-    )
+    llm = init_llm(configurable.model, timeout=200)
 
     if allocation_size > 0:
         if os.getenv("DATASET", "").strip().lower() == "web_browsing_events":
