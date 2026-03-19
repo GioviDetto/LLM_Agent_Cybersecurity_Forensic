@@ -2,6 +2,13 @@
 import tiktoken
 import subprocess
 from typing import Optional
+from multi_agent.common.tshark_apptainer import (
+    count_flows_apptainer,
+    get_flow_apptainer,
+    get_flow_http2_apptainer,
+    get_flow_http_apptainer,
+    ApptainerTsharkError,
+)
 
 # This encoding is used for token counting by most of the providers
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -59,54 +66,50 @@ def truncate_flow(flow_text: str, tokens_budget: int,context_window: int=128000)
 
 def count_flows(pcap_file: str) -> int:
     """
-    Executes the command:
-    tshark -r .\CVE-2020-11981_fail.pcap -T fields -e tcp.stream | Sort-Object | Get-Unique | Measure-Object | Select-Object -ExpandProperty Count
-    in order to get the number of distinct tcp flows in the pcap file.
+    Get the number of distinct TCP flows in a PCAP file.
+    Runs via Apptainer tshark container.
     Returns the number of distinct tcp flows in the pcap file.
     """
-    cmd = ["tshark", "-r", pcap_file, "-T", "fields", "-e", "tcp.stream"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    # Split the output into lines and filter out empty lines
-    streams = [line for line in result.stdout.splitlines() if line.strip()]
-    
-    # Use a set to get unique streams
-    unique_streams = set(streams)
-    
-    return len(unique_streams)
+    try:
+        return count_flows_apptainer(pcap_file)
+    except ApptainerTsharkError as e:
+        print(f"[ERROR] Failed to count flows: {e}")
+        return 0
 
 
 def get_flow(pcap_file: str, stream: int) -> str:
     """
-    Executes the tshark command required to extract the flow from a pcap file.
-    The flow is extracted using the follow TCP command and is returned as a list of strings.
-    Each string in the list represents a block of text that is less than 50,000 tokens.
+    Extract a TCP flow from a PCAP file.
+    The flow is extracted using the follow TCP command via Apptainer tshark.
+    Returns the flow data as text.
     """
-    cmd = ["tshark", "-r", pcap_file, "-q", "-z", f"follow,tcp,ascii,{stream}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    raw_text = result.stdout
-    return raw_text 
+    try:
+        return get_flow_apptainer(pcap_file, stream)
+    except ApptainerTsharkError as e:
+        print(f"[ERROR] Failed to get flow {stream}: {e}")
+        return "" 
 
 def is_empty_follow_block(text: str) -> bool:
     return len(text.strip().split('\n')) <= 6
 
 def concatenate_subflows(pcap_file:str,stream:int)->Optional[str]:
+    """Concatenate HTTP/2 subflows from a PCAP file via Apptainer tshark."""
     subflows = []
     key_file_path = '/'.join(pcap_file.split("/")[:-1]) + "/sslkeylogfile.txt" 
     i = 0
     while True:
-        cmd = [
-            "tshark", 
-            "-r", pcap_file, 
-            "-q", 
-            "-z", f"follow,http2,ascii,{stream},{i}", 
-            "-o", f"tls.keylog_file:{key_file_path}"
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            raw_text = get_flow_http2_apptainer(
+                pcap_file, 
+                stream, 
+                subflow=i,
+                keylog_file=key_file_path if key_file_path else None
+            ).strip()
+        except ApptainerTsharkError as e:
+            print(f"[ERROR] Failed to get HTTP/2 subflow {stream},{i}: {e}")
+            break
 
-        raw_text = result.stdout.strip()
-        if  is_empty_follow_block(raw_text):
+        if is_empty_follow_block(raw_text):
             break
         i+=1
         subflows.append(raw_text + '\n')
@@ -118,25 +121,25 @@ def concatenate_subflows(pcap_file:str,stream:int)->Optional[str]:
 
 def get_flow_web_browsing(pcap_file: str, stream: int) -> Optional[str]:
     """
-    Executes the tshark command required to extract the flow from a pcap file.
-    The flow is extracted using the follow TCP command and is returned as a list of strings.
-        """
+    Extract a web browsing HTTP flow from a PCAP file.
+    The flow is extracted using the follow HTTP command via Apptainer tshark.
+    Falls back to HTTP/2 subflows if main flow is empty.
+    """
     
     key_file_path = '/'.join(pcap_file.split("/")[:-1]) + "/sslkeylogfile.txt"  
 
-    cmd = [
-    "tshark", 
-    "-r", pcap_file, 
-    "-q", 
-    "-z", f"follow,http,ascii,{stream}", 
-    "-o", f"tls.keylog_file:{key_file_path}"
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        raw_text = get_flow_http_apptainer(
+            pcap_file,
+            stream,
+            keylog_file=key_file_path if key_file_path else None
+        )
+    except ApptainerTsharkError as e:
+        print(f"[ERROR] Failed to get HTTP flow {stream}: {e}")
+        return None
 
-    raw_text = result.stdout
-
-    if  is_empty_follow_block(raw_text):
-        subflows_text = concatenate_subflows(pcap_file,stream)
+    if is_empty_follow_block(raw_text):
+        subflows_text = concatenate_subflows(pcap_file, stream)
         if not subflows_text:
             return None
         else:
