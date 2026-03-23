@@ -6,21 +6,20 @@ from langchain_openai import ChatOpenAI
 from multi_agent.llm_service.vllm_wrapper import VLLMChatModel
 
 
-def init_llm(model_config: str, timeout: int = 200, **kwargs) -> Any:
+def init_llm(model_config: str, timeout: int = 200, api_url: str | None = None, **kwargs) -> Any:
     """
     Initialize LLM based on model configuration string.
-    
-    Args:
-        model_config: Model configuration string in format:
-            - "openai/gpt-4o" - uses OpenAI API
-            - "vllm/meta-llama/Meta-Llama-3-8B-Instruct" - uses local vLLM
-            - "vllm" - uses vLLM with default model from env
-        timeout: Request timeout in seconds (only for OpenAI)
-        **kwargs: Additional arguments to pass to LLM
-    
-    Returns:
-        Initialized LLM instance
+
+    model_config:
+      - "openai/gpt-4o": uses OpenAI API
+      - "vllm/meta-llama/...": uses direct local vLLM (unless api_url is set)
+      - "vllm": uses default vLLM model
+
+    If api_url is set, vllm provider uses a remote API endpoint via ChatOpenAI.
     """
+    if api_url is None:
+        api_url = os.getenv("API_URL", None)
+
     if "/" in model_config:
         parts = model_config.split("/", 1)
         provider = parts[0]
@@ -28,13 +27,21 @@ def init_llm(model_config: str, timeout: int = 200, **kwargs) -> Any:
     else:
         provider = "vllm"
         model = os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
-    
+
     if provider.lower() == "vllm":
+        if api_url:
+            return ChatOpenAI(
+                model=model,
+                openai_api_base=api_url,
+                timeout=timeout,
+                **kwargs,
+            )
         return get_vllm_model(model=model, **kwargs)
     elif provider.lower() == "openai":
         return ChatOpenAI(
             model=model,
             timeout=timeout,
+            openai_api_base=api_url if api_url else None,
             **kwargs
         )
     else:

@@ -3,6 +3,7 @@ import re
 import uuid
 import json
 import os
+import argparse
 import numpy as np
 from pathlib import Path
 import shutil
@@ -17,6 +18,50 @@ from configuration import Configuration
 
 
 load_dotenv()
+
+# ==== ARGUMENT PARSING ====
+parser = argparse.ArgumentParser(description="Forensic Agent - Cybersecurity Analysis")
+parser.add_argument("--model", type=str, required=True, help="LLM model (e.g., vllm/meta-llama/Meta-Llama-3-8B-Instruct)")
+parser.add_argument("--vllm-model", type=str, help="vLLM model ID if different from --model in vllm mode")
+parser.add_argument("--gpu-memory", type=float, default=0.9, help="GPU memory fraction (0.0 to 1.0)")
+parser.add_argument("--vllm-max-tokens", type=int, default=1024, help="Max tokens for vLLM responses")
+parser.add_argument("--events", type=int, default=20, help="Number of events to process")
+parser.add_argument("--executions", type=int, default=1, help="Number of executions")
+parser.add_argument("--dataset", type=str, choices=["CFA", "test", "web_browsing_events"], default="CFA", help="Dataset: CFA, test, web_browsing_events")
+parser.add_argument("--use-local-embeddings", type=lambda x: x.lower() in ("true", "1", "yes"), default=True, help="Use local embeddings (true/false)")
+parser.add_argument("--embedding-model", type=str, default="all-MiniLM-L6-v2", help="HuggingFace embedding model")
+parser.add_argument("--context-window", type=int, default=128000, help="Context window size")
+parser.add_argument("--tokens-budget", type=int, default=400000, help="Tokens budget")
+parser.add_argument("--api-url", type=str, default=None, help="Optional OpenAI-compatible API URL for remote model serving")
+
+args = parser.parse_args()
+
+# ==== SET ENVIRONMENT VARIABLES FROM CLI ARGS ====
+if args.model:
+    os.environ["MODEL"] = args.model
+if args.vllm_model:
+    os.environ["VLLM_MODEL"] = args.vllm_model
+if args.gpu_memory is not None:
+    os.environ["VLLM_GPU_MEMORY"] = str(args.gpu_memory)
+if args.vllm_max_tokens:
+    os.environ["VLLM_MAX_TOKENS"] = str(args.vllm_max_tokens)
+if args.events:
+    os.environ["NUMBER_OF_EVENTS"] = str(args.events)
+if args.executions:
+    os.environ["NUMBER_OF_EXECUTIONS"] = str(args.executions)
+if args.dataset:
+    os.environ["DATASET"] = args.dataset
+if args.use_local_embeddings is not None:
+    os.environ["USE_LOCAL_EMBEDDINGS"] = str(args.use_local_embeddings).lower()
+if args.embedding_model:
+    os.environ["EMBEDDING_MODEL"] = args.embedding_model
+if args.context_window:
+    os.environ["CONTEXT_WINDOW_SIZE"] = str(args.context_window)
+if args.tokens_budget:
+    os.environ["TOKENS_BUDGET"] = str(args.tokens_budget)
+if args.api_url:
+    os.environ["API_URL"] = args.api_url
+
 EXECUTION = os.getenv("EXECUTION_MODE", "API")
 
 
@@ -28,6 +73,7 @@ def get_dataset() -> str:
     dataset_map = {
         "CFA": "CFA-benchmark",
         "test": "TestSet_benchmark",
+        "web_browsing_events": "web_browsing_traffic",
     }
     dataset = os.getenv("DATASET", "CFA")
     try:
@@ -36,7 +82,10 @@ def get_dataset() -> str:
         raise ValueError(f"Unknown dataset '{dataset}'. Allowed values: {list(dataset_map)}")
 
 DATASET_DIR = BASE_DIR.parent / "data" / get_dataset()
-GROUNDTRUTH_FILE = DATASET_DIR / "tasks" / "data.json"
+if os.getenv("DATASET", "CFA") == "web_browsing_events":
+    GROUNDTRUTH_FILE = None
+else:
+    GROUNDTRUTH_FILE = DATASET_DIR / "tasks" / "data.json"
 RAW_DIR = DATASET_DIR / "raw"
 
 def get_number_of_executions(default: int = 3) -> int:
@@ -114,7 +163,18 @@ def get_occurrences(input_string, start_substring='', end_substring='\n'):
 
 
 def load_data():
-    with open(GROUNDTRUTH_FILE, 'r') as file: 
+    if GROUNDTRUTH_FILE is None:
+        # web_browsing_events mode has no pre-defined tasks metadata
+        event_ids = []
+        for name in os.listdir(RAW_DIR):
+            if os.path.isdir(os.path.join(RAW_DIR, name)):
+                m = re.match(r"^eventID_(\d+)$", name)
+                if m:
+                    event_ids.append(int(m.group(1)))
+        event_ids.sort()
+        return [{"event": eid} for eid in event_ids]
+
+    with open(GROUNDTRUTH_FILE, 'r') as file:
         games = json.load(file)
     return games['tasks']
 
@@ -200,6 +260,8 @@ async def main():
     RESULTS_BASE_DIR.mkdir(parents=True, exist_ok=True)
     pcaps = load_data()
 
+    has_ground_truth = GROUNDTRUTH_FILE is not None
+
     for execution_number in range(1, NUMBER_OF_EXECUTIONS + 1):
         run_dir = RESULTS_BASE_DIR / f"run{execution_number}"
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -210,36 +272,38 @@ async def main():
         confusion_matrix_success = np.zeros((2, 2), dtype=int)
 
         with result_file.open("w", encoding="utf-8") as f:
-            for i, game in enumerate(pcaps):
+            for game in pcaps:
+                event_id = game.get("event")
                 paths = get_artifact_paths(game)
                 store = init_store()
                 graph = build_graph(store)
 
-                expected_answer = [
-                    game["cve"],
-                    game["service"],
-                    game["vulnerable"],
-                    game["success"],
-                ]
+                if has_ground_truth:
+                    expected_answer = [
+                        game["cve"],
+                        game["service"],
+                        game["vulnerable"],
+                        game["success"],
+                    ]
 
-                is_vulnerable = game["vulnerable"]
-                is_success = game["success"]
+                    is_vulnerable = game["vulnerable"]
+                    is_success = game["success"]
 
                 done, answer, steps, inTokens, outTokens = await run_forensic_example(
                     graph=graph,
                     execution_number=execution_number,
-                    event_id=i,
+                    event_id=event_id,
                     pcap_path=paths["pcap_path"],
                     log_dir=paths["log_dir"],
                 )
 
                 if done:
-                    f.write(f"[Task {i}]\n{answer}\n\nNumber of steps: {25 - steps}\n\n")
+                    f.write(f"[Task {event_id}]\n{answer}\n\nNumber of steps: {25 - steps}\n\n")
                 else:
-                    f.write(f"[Task {i}]\n{NOT_GIVEN_ANSWER}\n\nNumber of steps: {25 - steps}\n\n")
+                    f.write(f"[Task {event_id}]\n{NOT_GIVEN_ANSWER}\n\nNumber of steps: {25 - steps}\n\n")
                 f.write(f"Input tokens written: {inTokens}, output tokens: {outTokens}\n\n\n")
 
-                if done:
+                if has_ground_truth and done:
                     answers = [
                         get_occurrences(answer, "Identified CVE: "),
                         get_occurrences(answer, "Affected Service: "),
@@ -258,16 +322,19 @@ async def main():
                     confusion_matrix_vulnerable[int(is_vulnerable)][int(pred_vulnerable)] += 1
                     confusion_matrix_success[int(is_success)][int(pred_success)] += 1
 
-            f.write("\n\n\nStatistics:\n")
-            f.write(f"Percentage of identified CVE: {counters[0]/len(pcaps)*100:.2f}%\n")
-            f.write(f"Percentage of identified affected service: {counters[1]/len(pcaps)*100:.2f}%\n")
-            f.write(f"Percentage of identified vulnerability: {counters[2]/len(pcaps)*100:.2f}%\n")
-            f.write(f"Percentage of identified attack success: {counters[3]/len(pcaps)*100:.2f}%\n")
+            if has_ground_truth:
+                f.write("\n\n\nStatistics:\n")
+                f.write(f"Percentage of identified CVE: {counters[0]/len(pcaps)*100:.2f}%\n")
+                f.write(f"Percentage of identified affected service: {counters[1]/len(pcaps)*100:.2f}%\n")
+                f.write(f"Percentage of identified vulnerability: {counters[2]/len(pcaps)*100:.2f}%\n")
+                f.write(f"Percentage of identified attack success: {counters[3]/len(pcaps)*100:.2f}%\n")
 
-            f1_macro_vulnerable, mcc_vulnerable = calculate_f1_mcc(confusion_matrix_vulnerable)
-            f1_macro_success, mcc_success = calculate_f1_mcc(confusion_matrix_success)
-            f.write(f"f1_macro for vulnerability: {f1_macro_vulnerable:.2f}, MCC: {mcc_vulnerable:.2f}\n")
-            f.write(f"f1_macro for attack success: {f1_macro_success:.2f}, MCC: {mcc_success:.2f}\n")
+                f1_macro_vulnerable, mcc_vulnerable = calculate_f1_mcc(confusion_matrix_vulnerable)
+                f1_macro_success, mcc_success = calculate_f1_mcc(confusion_matrix_success)
+                f.write(f"f1_macro for vulnerability: {f1_macro_vulnerable:.2f}, MCC: {mcc_vulnerable:.2f}\n")
+                f.write(f"f1_macro for attack success: {f1_macro_success:.2f}, MCC: {mcc_success:.2f}\n")
+            else:
+                f.write("\n\n\nNo ground truth available for this dataset. Evaluation metrics ignored.\n")
             f.write("Finished running all tasks.\n")
 
 
