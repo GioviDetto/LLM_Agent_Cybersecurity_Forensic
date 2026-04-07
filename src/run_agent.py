@@ -33,6 +33,7 @@ parser.add_argument("--embedding-model", type=str, default="all-MiniLM-L6-v2", h
 parser.add_argument("--context-window", type=int, default=128000, help="Context window size")
 parser.add_argument("--tokens-budget", type=int, default=400000, help="Tokens budget")
 parser.add_argument("--api-url", type=str, default=None, help="Optional OpenAI-compatible API URL for remote model serving")
+parser.add_argument("--max-steps", type=int, default=25, help="Maximum number of steps for the agent")
 
 args = parser.parse_args()
 
@@ -295,12 +296,13 @@ async def main():
                     event_id=event_id,
                     pcap_path=paths["pcap_path"],
                     log_dir=paths["log_dir"],
+                    max_steps=args.max_steps,
                 )
 
                 if done:
-                    f.write(f"[Task {event_id}]\n{answer}\n\nNumber of steps: {25 - steps}\n\n")
+                    f.write(f"[Task {event_id}]\n{answer}\n\nNumber of steps: {args.max_steps - steps}\n\n")
                 else:
-                    f.write(f"[Task {event_id}]\n{NOT_GIVEN_ANSWER}\n\nNumber of steps: {25 - steps}\n\n")
+                    f.write(f"[Task {event_id}]\n{NOT_GIVEN_ANSWER}\n\nNumber of steps: {args.max_steps - steps}\n\n")
                 f.write(f"Input tokens written: {inTokens}, output tokens: {outTokens}\n\n\n")
 
                 if has_ground_truth and done:
